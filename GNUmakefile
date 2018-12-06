@@ -87,7 +87,8 @@ PERL	:= perl
 CFLAGS := $(CFLAGS) $(DEFS) $(LABDEFS) -O1 -fno-builtin -I$(TOP) -MD
 CFLAGS += -fno-omit-frame-pointer -fno-pic -fno-inline
 CFLAGS += -std=c99 -fasm -ffreestanding -fno-strict-aliasing
-CFLAGS += -Wall -Wno-format -Wno-unused -Werror -gstabs -m32
+CFLAGS += -Wall -Wno-format -Wno-unused -Werror -ggdb3 -m32
+# flag modificado aca arriba
 # -fno-tree-ch prevented gcc from sometimes reordering read_ebp() before
 # mon_backtrace()'s function prologue on gcc version: (Debian 4.7.2-5) 4.7.2
 CFLAGS += -fno-tree-ch
@@ -137,11 +138,16 @@ $(OBJDIR)/.vars.%: FORCE
 # Include Makefrags for subdirectories
 include boot/Makefrag
 include kern/Makefrag
+include lib/Makefrag
+include user/Makefrag
 
+
+CPUS ?= 1
 
 QEMUOPTS = -drive file=$(OBJDIR)/kern/kernel.img,index=0,media=disk,format=raw -serial mon:stdio -gdb tcp:$(GDBSERV)
 QEMUOPTS += $(shell if $(QEMU) -nographic -help | grep -q '^-D '; then echo '-D qemu.log'; fi)
 IMAGES = $(OBJDIR)/kern/kernel.img
+QEMUOPTS += -smp $(CPUS)
 QEMUOPTS += $(QEMUEXTRA) -d guest_errors
 
 gdb:
@@ -197,6 +203,9 @@ grade:
 	  (echo "'make clean' failed.  HINT: Do you have another running instance of JOS?" && exit 1)
 	./grade-lab$(LAB) $(GRADEFLAGS)
 
+format: .clang-files .clang-format
+	xargs -r clang-format -i <$<
+
 git-handin: handin-check
 	@if test -n "`git config remote.handin.url`"; then \
 		echo "Hand in to remote repository using 'git push handin HEAD' ..."; \
@@ -249,18 +258,10 @@ handin-check:
 
 UPSTREAM := $(shell git remote -v | grep "pdos.csail.mit.edu/6.828/2016/jos.git (fetch)" | awk '{split($$0,a," "); print a[1]}')
 
-tarball: handin-check
-	git archive --format=tar HEAD > lab$(LAB)-handin.tar
-	git diff $(UPSTREAM)/lab$(LAB) > /tmp/lab$(LAB)diff.patch
-	tar -rf lab$(LAB)-handin.tar /tmp/lab$(LAB)diff.patch
-	gzip -c lab$(LAB)-handin.tar > lab$(LAB)-handin.tar.gz
-	rm lab$(LAB)-handin.tar
-	rm /tmp/lab$(LAB)diff.patch
-
 tarball-pref: handin-check
 	@SUF=$(LAB); \
 	if test $(LAB) -eq 3 -o $(LAB) -eq 4; then \
-		read -p "Which part would you like to submit? [a, b, c (lab 4 only)]" p; \
+		read -p "Which part would you like to submit? [a, b, c (c for lab 4 only)]" p; \
 		if test "$$p" != a -a "$$p" != b; then \
 			if test ! $(LAB) -eq 4 -o ! "$$p" = c; then \
 				echo "Bad part \"$$p\""; \
@@ -272,12 +273,12 @@ tarball-pref: handin-check
 	else \
 		rm -f .suf; \
 	fi; \
-	git archive --format=tar HEAD > lab$(LAB)-handin.tar
-	git diff $(UPSTREAM)/lab$(LAB) > /tmp/lab$(LAB)diff.patch
-	tar -rf lab$(LAB)-handin.tar /tmp/lab$(LAB)diff.patch
-	gzip -c lab$(LAB)-handin.tar > lab$(LAB)-handin.tar.gz
-	rm lab$(LAB)-handin.tar
-	rm /tmp/lab$(LAB)diff.patch
+	git archive --format=tar HEAD > lab$$SUF-handin.tar; \
+	git diff $(UPSTREAM)/lab$(LAB) > /tmp/lab$$SUF-diff.patch; \
+	tar -rf lab$$SUF-handin.tar /tmp/lab$$SUF-diff.patch; \
+	gzip -c lab$$SUF-handin.tar > lab$$SUF-handin.tar.gz; \
+	rm lab$$SUF-handin.tar; \
+	rm /tmp/lab$$SUF-diff.patch; \
 
 myapi.key:
 	@echo Get an API key for yourself by visiting $(WEBSUB)/
@@ -300,6 +301,22 @@ myapi.key:
 #handin-prep:
 #	@./handin-prep
 
+# For test runs
+
+prep-%:
+	$(V)$(MAKE) "INIT_CFLAGS=${INIT_CFLAGS} -DTEST=`case $* in *_*) echo $*;; *) echo user_$*;; esac`" $(IMAGES)
+
+run-%-nox-gdb: prep-%
+	$(QEMU) -nographic $(QEMUOPTS) -S
+
+run-%-gdb: prep-%
+	$(QEMU) $(QEMUOPTS) -S
+
+run-%-nox: prep-%
+	$(QEMU) -nographic $(QEMUOPTS)
+
+run-%: prep-%
+	$(QEMU) $(QEMUOPTS)
 
 # This magic automatically generates makefile dependencies
 # for header files included from C source files we compile,
@@ -314,5 +331,6 @@ $(OBJDIR)/.deps: $(foreach dir, $(OBJDIRS), $(wildcard $(OBJDIR)/$(dir)/*.d))
 always:
 	@:
 
+.PHONY: format
 .PHONY: all always \
 	handin git-handin tarball tarball-pref clean realclean distclean grade handin-prep handin-check

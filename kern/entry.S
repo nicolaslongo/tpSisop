@@ -2,6 +2,7 @@
 
 #include <inc/mmu.h>
 #include <inc/memlayout.h>
+#include <inc/trap.h>
 
 # Shift Right Logical 
 #define SRL(val, shamt)		(((val) >> (shamt)) & ~(-1 << (32 - (shamt))))
@@ -40,6 +41,7 @@
 _start = RELOC(entry)
 
 .globl entry
+.func entry
 entry:
 	movw	$0x1234,0x472			# warm boot
 
@@ -56,10 +58,16 @@ entry:
 	# is defined in entrypgdir.c.
 	movl	$(RELOC(entry_pgdir)), %eax
 	movl	%eax, %cr3
+
+	movl	%cr4, %eax
+	orl		$CR4_PSE, %eax
+	movl	%eax, %cr4
+
 	# Turn on paging.
 	movl	%cr0, %eax
 	orl	$(CR0_PE|CR0_PG|CR0_WP), %eax
 	movl	%eax, %cr0
+
 
 	# Now paging is enabled, but we're still running at a low EIP
 	# (why is this okay?).  Jump up above KERNBASE before entering

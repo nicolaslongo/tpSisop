@@ -1,0 +1,36 @@
+LAB 5:
+
+Para leer un bloque entero, tengo que leer 8 sectores
+
+En jos un bloque tiene 4096 bytes
+
+
+En el bloque 0 del dico va el boot sector. En el caso de tener varios discos no hace falta que todos tengan cargado el boot sector ahi, por lo tanto solamente uno lo tiene cargado y los otros discos lo dejan vacio, es decir que no lo usan para otra cosa.
+
+El bloque 1 tiene el sistema operativo.
+
+
+
+
+
+
+
+Particularmente en jOS:
+
+No hay inodos
+
+Un directorio es una secuencia de "struct File"
+
+Un struct es 256 bytes. Un directorio se compone de struct files.
+
+El FILE es solo data
+
+
+Para un archivo se guarda toda la metadata en un struct file, entonces para un archivo buscamos este struct file y este tiene la informacion de en que bloques se guarda la info de este archivo. Cada bloque esta dividido en structs de 256.
+
+
+Un strcut file tiene punteros directos y punteros indirectos (para usar niveles de indireccion) como en la teoria del arpachi
+
+
+
+

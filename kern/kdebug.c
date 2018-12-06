@@ -4,11 +4,20 @@
 #include <inc/assert.h>
 
 #include <kern/kdebug.h>
+#include <kern/pmap.h>
+#include <kern/env.h>
 
-extern const struct Stab __STAB_BEGIN__[];	// Beginning of stabs table
-extern const struct Stab __STAB_END__[];	// End of stabs table
-extern const char __STABSTR_BEGIN__[];		// Beginning of string table
-extern const char __STABSTR_END__[];		// End of string table
+extern const struct Stab __STAB_BEGIN__[];  // Beginning of stabs table
+extern const struct Stab __STAB_END__[];    // End of stabs table
+extern const char __STABSTR_BEGIN__[];      // Beginning of string table
+extern const char __STABSTR_END__[];        // End of string table
+
+struct UserStabData {
+	const struct Stab *stabs;
+	const struct Stab *stab_end;
+	const char *stabstr;
+	const char *stabstr_end;
+};
 
 
 // stab_binsearch(stabs, region_left, region_right, type, addr)
@@ -48,8 +57,11 @@ extern const char __STABSTR_END__[];		// End of string table
 //	will exit setting left = 118, right = 554.
 //
 static void
-stab_binsearch(const struct Stab *stabs, int *region_left, int *region_right,
-	       int type, uintptr_t addr)
+stab_binsearch(const struct Stab *stabs,
+               int *region_left,
+               int *region_right,
+               int type,
+               uintptr_t addr)
 {
 	int l = *region_left, r = *region_right, any_matches = 0;
 
@@ -59,7 +71,7 @@ stab_binsearch(const struct Stab *stabs, int *region_left, int *region_right,
 		// search for earliest stab with right type
 		while (m >= l && stabs[m].n_type != type)
 			m--;
-		if (m < l) {	// no match in [l, m]
+		if (m < l) {  // no match in [l, m]
 			l = true_m + 1;
 			continue;
 		}
@@ -123,8 +135,42 @@ debuginfo_eip(uintptr_t addr, struct Eipdebuginfo *info)
 		stabstr = __STABSTR_BEGIN__;
 		stabstr_end = __STABSTR_END__;
 	} else {
-		// Can't search for user-level addresses yet!
-  	        panic("User address");
+		// The user-application linker script, user/user.ld,
+		// puts information about the application's stabs (equivalent
+		// to __STAB_BEGIN__, __STAB_END__, __STABSTR_BEGIN__, and
+		// __STABSTR_END__) in a structure located at virtual address
+		// USTABDATA.
+		const struct UserStabData *usd =
+		        (const struct UserStabData *) USTABDATA;
+
+		// Make sure this memory is valid.
+		// Return -1 if it is not.  Hint: Call user_mem_check.
+		// LAB 3: Your code here.
+		if (user_mem_check(curenv, usd, sizeof(struct UserStabData), 0))
+			return -1;
+
+		if (user_mem_check(curenv, usd, sizeof(usd), PTE_P | PTE_U) < 0) {
+			return -1;
+		}
+
+		stabs = usd->stabs;
+		stab_end = usd->stab_end;
+		stabstr = usd->stabstr;
+		stabstr_end = usd->stabstr_end;
+
+		// Make sure the STABS and string table memory is valid.
+		// LAB 3: Your code here.
+//		if (user_mem_check(curenv, stabs, stab_end - stabs, 0) ||
+//		    user_mem_check(curenv, stabstr, stabstr_end - stabstr, 0))
+//			return -1;
+		if (user_mem_check(curenv, stabs, sizeof(stabs), PTE_P | PTE_U) <
+		    0) {
+			return -1;
+		}
+		if (user_mem_check(curenv, stabstr, sizeof(stabstr), PTE_P | PTE_U) <
+		    0) {
+			return -1;
+		}
 	}
 
 	// String table validity checks
@@ -190,9 +236,8 @@ debuginfo_eip(uintptr_t addr, struct Eipdebuginfo *info)
 	// We can't just use the "lfile" stab because inlined functions
 	// can interpolate code from a different file!
 	// Such included source files use the N_SOL stab type.
-	while (lline >= lfile
-	       && stabs[lline].n_type != N_SOL
-	       && (stabs[lline].n_type != N_SO || !stabs[lline].n_value))
+	while (lline >= lfile && stabs[lline].n_type != N_SOL &&
+	       (stabs[lline].n_type != N_SO || !stabs[lline].n_value))
 		lline--;
 	if (lline >= lfile && stabs[lline].n_strx < stabstr_end - stabstr)
 		info->eip_file = stabstr + stabs[lline].n_strx;
